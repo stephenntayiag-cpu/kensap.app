@@ -107,25 +107,26 @@ homepage_layout = html.Div([
         )
     ], style={'marginBottom': '40px'}),
 ])
+
 # -----------------------------
 # Gallery Layout
 # -----------------------------
-photo_elements = []
-for filename in os.listdir(PHOTOS_FOLDER):
-    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-        photo_elements.append(
-            html.Div([
-                html.Img(src=f"/{PHOTOS_FOLDER}/{filename}", style={"width": "300px", "margin": "10px 0"}),
-                html.Div(id={'type': 'comments', 'index': filename}),
-                dbc.Input(id={'type': 'input', 'index': filename}, placeholder="Add a comment...", type="text"),
-                dbc.Button("Submit", id={'type': 'submit', 'index': filename}, color="primary", n_clicks=0, style={"marginTop": "5px"})
-            ], style={"border": "1px solid #ccc", "padding": "10px", "marginBottom": "20px"})
-        )
-
-gallery_layout = html.Div([
-    html.H2("Gallery", style={"textAlign": "center", "marginTop": "20px"}),
-    html.Div(photo_elements)
-])
+def generate_gallery_layout():
+    photo_elements = []
+    for filename in os.listdir(PHOTOS_FOLDER):
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+            photo_elements.append(
+                html.Div([
+                    html.Img(src=f"/{PHOTOS_FOLDER}/{filename}", style={"width": "300px", "margin": "10px 0"}),
+                    html.Div(id={'type': 'comments', 'index': filename}),
+                    dbc.Input(id={'type': 'input', 'index': filename}, placeholder="Add a comment...", type="text"),
+                    dbc.Button("Submit", id={'type': 'submit', 'index': filename}, color="primary", n_clicks=0, style={"marginTop": "5px"})
+                ], style={"border": "1px solid #ccc", "padding": "10px", "marginBottom": "20px"})
+            )
+    return html.Div([
+        html.H2("Gallery", style={"textAlign": "center", "marginTop": "20px"}),
+        html.Div(photo_elements)
+    ])
 
 # -----------------------------
 # Alumni Layout
@@ -146,7 +147,7 @@ alumni_layout = html.Div([
 ])
 
 # -----------------------------
-# Profile Layout (placeholder)
+# Profile Layout
 # -----------------------------
 def profile_layout(session_data):
     username = session_data.get("username") if session_data else "Guest"
@@ -208,7 +209,7 @@ def display_page(pathname, session_data):
     elif pathname == '/homepage':
         return homepage_layout
     elif pathname == '/gallery':
-        return gallery_layout
+        return generate_gallery_layout()
     elif pathname == '/alumni':
         return alumni_layout
     elif pathname == '/profile':
@@ -219,60 +220,55 @@ def display_page(pathname, session_data):
         return login_layout
 
 # -----------------------------
-# Authentication Callbacks
+# Authentication & Logout Combined
 # -----------------------------
 @app.callback(
-    Output("login-output", "children"),
     Output("user-session", "data"),
+    Output("login-output", "children"),
     Input("login-button", "n_clicks"),
     Input("signup-button", "n_clicks"),
+    Input("url", "pathname"),
     State("username", "value"),
     State("password", "value"),
+    State("user-session", "data"),
     prevent_initial_call=True
 )
-def handle_auth(login_click, signup_click, username, password):
+def handle_auth_and_logout(login_click, signup_click, pathname, username, password, session_data):
     ctx = callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # LOGOUT
+    if pathname == "/logout":
+        return None, "You have logged out."
+
+    # LOGIN / SIGNUP
+    if trigger not in ["login-button", "signup-button"]:
+        raise dash.exceptions.PreventUpdate
 
     if not username or not password:
-        return "Please enter both username and password.", None
+        return session_data, "Please enter both username and password."
 
     with open(USERS_FILE, "r") as f:
         users = json.load(f)
 
-    if button_id == "login-button":
+    if trigger == "login-button":
         if username in users and users[username] == password:
-            return f"Login successful. Welcome {username}!", {"username": username}
+            return {"username": username}, f"Login successful. Welcome {username}!"
         else:
-            return "Invalid username or password.", None
+            return None, "Invalid username or password."
 
-    elif button_id == "signup-button":
+    elif trigger == "signup-button":
         if username in users:
-            return "Username already exists. Try logging in.", None
-        else:
-            users[username] = password
-            with open(USERS_FILE, "w") as f:
-                json.dump(users, f)
-            return f"Sign-up successful! You can now log in, {username}.", None
+            return session_data, "Username already exists. Try logging in."
+        users[username] = password
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f)
+        return session_data, f"Sign-up successful! You can now log in, {username}."
 
 # -----------------------------
-# Logout callback
-# -----------------------------
-@app.callback(
-    Output("user-session", "data"),
-    Output("login-output", "children"),
-    Input("url", "pathname"),
-    State("user-session", "data")
-)
-def handle_logout(pathname, session_data):
-    if pathname == "/logout":
-        return None, "You have logged out."
-    return session_data, dash.no_update
-
-# -----------------------------
-# Alumni callbacks
+# Alumni Callbacks
 # -----------------------------
 @app.callback(
     Output("alumni-list", "children"),
@@ -305,7 +301,7 @@ def add_alumni(n_clicks, name):
     return f"{name} has been added to the alumni list!"
 
 # -----------------------------
-# Gallery callbacks
+# Gallery Callbacks
 # -----------------------------
 @app.callback(
     Output({'type': 'comments', 'index': ALL}, 'children'),
